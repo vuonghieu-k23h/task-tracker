@@ -1,0 +1,340 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Task Tracker - Quản lý công việc</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f6fb;
+      margin: 0;
+      color: #263238;
+    }
+    header {
+      background: #2563eb;
+      color: white;
+      padding: 24px;
+      text-align: center;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 30px auto;
+      padding: 0 16px;
+    }
+    .card {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      box-shadow: 0 3px 12px #00000010;
+    }
+    h2 { color: #1d4ed8; }
+    input, textarea, select {
+      width: 100%;
+      padding: 11px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font: inherit;
+      margin: 8px 0 15px;
+    }
+    label { font-weight: bold; }
+    button {
+      padding: 10px 15px;
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+      color: white;
+      background: #2563eb;
+    }
+    button:hover { opacity: .85; }
+    .edit { background: #d97706; }
+    .delete { background: #dc2626; }
+    .cancel { background: #64748b; }
+    .actions { display: flex; gap: 6px; }
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+    }
+    th { background: #eff6ff; }
+    .error { color: #dc2626; }
+    .success { color: #15803d; }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .stat {
+      flex: 1;
+      min-width: 130px;
+      padding: 18px;
+      background: #eff6ff;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat strong {
+      display: block;
+      font-size: 28px;
+      color: #1d4ed8;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TASK TRACKER</h1>
+    <p>Hệ thống quản lý công việc - Đề tài 24</p>
+  </header>
+
+  <main class="container">
+    <div class="card">
+      <h2>Thống kê công việc</h2>
+      <div class="stats">
+        <div class="stat">Tổng công việc<strong id="total">0</strong></div>
+        <div class="stat">Chưa làm<strong id="todo">0</strong></div>
+        <div class="stat">Đang làm<strong id="progress">0</strong></div>
+        <div class="stat">Hoàn thành<strong id="done">0</strong></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="formTitle">Thêm công việc mới</h2>
+      <form id="taskForm">
+        <input type="hidden" id="taskId">
+
+        <label for="title">Tên công việc</label>
+        <input id="title" maxlength="255" required
+               placeholder="Nhập tên công việc">
+
+        <label for="description">Mô tả</label>
+        <textarea id="description" rows="3"
+                  placeholder="Nhập mô tả công việc"></textarea>
+
+        <label for="deadline">Thời hạn</label>
+        <input id="deadline" type="date">
+
+        <label for="status">Trạng thái</label>
+        <select id="status">
+          <option value="TODO">Chưa làm</option>
+          <option value="IN_PROGRESS">Đang làm</option>
+          <option value="DONE">Hoàn thành</option>
+        </select>
+
+        <button type="submit" id="saveBtn">Thêm công việc</button>
+        <button type="button" class="cancel"
+                id="cancelBtn" hidden>Hủy sửa</button>
+      </form>
+      <p id="message" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="card">
+      <h2>Danh sách công việc</h2>
+
+      <label for="filter">Lọc theo trạng thái</label>
+      <select id="filter">
+        <option value="ALL">Tất cả</option>
+        <option value="TODO">Chưa làm</option>
+        <option value="IN_PROGRESS">Đang làm</option>
+        <option value="DONE">Hoàn thành</option>
+      </select>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Công việc</th>
+              <th>Deadline</th>
+              <th>Trạng thái</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="taskList"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const API = "/api/tasks";
+    let tasks = [];
+
+    const $ = id => document.getElementById(id);
+
+    function notify(text, error = false) {
+      $("message").textContent = text;
+      $("message").className = error ? "error" : "success";
+    }
+
+    async function request(url, options = {}) {
+      const response = await fetch(url, options);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Yêu cầu thất bại");
+      }
+      return data;
+    }
+
+    function updateStats() {
+      $("total").textContent = tasks.length;
+      $("todo").textContent =
+        tasks.filter(t => t.status === "TODO").length;
+      $("progress").textContent =
+        tasks.filter(t => t.status === "IN_PROGRESS").length;
+      $("done").textContent =
+        tasks.filter(t => t.status === "DONE").length;
+    }
+
+    function statusText(status) {
+      return {
+        TODO: "Chưa làm",
+        IN_PROGRESS: "Đang làm",
+        DONE: "Hoàn thành"
+      }[status] || status;
+    }
+
+    function makeCell(row, value) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      row.appendChild(td);
+      return td;
+    }
+
+    function renderTasks() {
+      const tbody = $("taskList");
+      tbody.replaceChildren();
+
+      const filter = $("filter").value;
+      const visible = tasks.filter(t =>
+        filter === "ALL" || t.status === filter
+      );
+
+      for (const task of visible) {
+        const row = document.createElement("tr");
+        makeCell(row, task.id);
+        makeCell(row, task.title);
+        makeCell(row, task.deadline
+          ? task.deadline.slice(0, 10) : "Chưa đặt");
+        makeCell(row, statusText(task.status));
+
+        const actions = document.createElement("td");
+        actions.className = "actions";
+
+        const edit = document.createElement("button");
+        edit.className = "edit";
+        edit.textContent = "Sửa";
+        edit.onclick = () => editTask(task.id);
+
+        const del = document.createElement("button");
+        del.className = "delete";
+        del.textContent = "Xóa";
+        del.onclick = () => deleteTask(task.id);
+
+        actions.append(edit, del);
+        row.appendChild(actions);
+        tbody.appendChild(row);
+      }
+
+      if (visible.length === 0) {
+        const row = document.createElement("tr");
+        const cell = makeCell(row, "Không có công việc");
+        cell.colSpan = 5;
+        tbody.appendChild(row);
+      }
+      updateStats();
+    }
+
+    async function loadTasks() {
+      try {
+        tasks = await request(API);
+        renderTasks();
+      } catch (error) {
+        notify(error.message, true);
+      }
+    }
+
+    function resetForm() {
+      $("taskForm").reset();
+      $("taskId").value = "";
+      $("formTitle").textContent = "Thêm công việc mới";
+      $("saveBtn").textContent = "Thêm công việc";
+      $("cancelBtn").hidden = true;
+    }
+
+    function editTask(id) {
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      $("taskId").value = task.id;
+      $("title").value = task.title;
+      $("description").value = task.description || "";
+      $("deadline").value = task.deadline
+        ? task.deadline.slice(0, 10) : "";
+      $("status").value = task.status;
+
+      $("formTitle").textContent = "Chỉnh sửa công việc";
+      $("saveBtn").textContent = "Lưu thay đổi";
+      $("cancelBtn").hidden = false;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    $("taskForm").addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const id = $("taskId").value;
+      const data = {
+        title: $("title").value.trim(),
+        description: $("description").value,
+        deadline: $("deadline").value || null,
+        status: $("status").value
+      };
+
+      if (!data.title) {
+        notify("Vui lòng nhập tên công việc", true);
+        return;
+      }
+
+      try {
+        await request(id ? `${API}/${id}` : API, {
+          method: id ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        });
+
+        resetForm();
+        await loadTasks();
+        notify(id ? "Cập nhật thành công!" : "Thêm thành công!");
+      } catch (error) {
+        notify(error.message, true);
+      }
+    });
+
+    async function deleteTask(id) {
+      if (!confirm("Bạn chắc chắn muốn xóa công việc này?")) return;
+
+      try {
+        await request(`${API}/${id}`, { method: "DELETE" });
+        resetForm();
+        await loadTasks();
+        notify("Xóa công việc thành công!");
+      } catch (error) {
+        notify(error.message, true);
+      }
+    }
+
+    $("cancelBtn").onclick = resetForm;
+    $("filter").onchange = renderTasks;
+
+    loadTasks();
+  </script>
+</body>
+</html>
