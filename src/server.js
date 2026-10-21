@@ -2,7 +2,11 @@
 const express = require("express");
 const path = require("path");
 const pool = require("./db");
-
+ const {
+  redisClient,
+  connectRedis,
+  clearTasksCache
+} = require("./redis");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -17,14 +21,49 @@ app.get("/api/health", (req, res) => {
     message: "Task Tracker dang hoat dong"
   });
 });
-
-// Lấy danh sách công việc từ PostgreSQL
+// Lay danh sach cong viec voi Redis Cache
 app.get("/api/tasks", async (req, res) => {
+  const cacheKey = "tasks:all";
+
   try {
+    // Kiem tra Redis Cache
+    if (redisClient.isReady) {
+      try {
+        const cachedData = await redisClient.get(cacheKey);
+
+        if (cachedData !== null) {
+          console.log("CACHE HIT - Lay du lieu tu Redis");
+          res.set("X-Cache", "HIT");
+          return res.json(JSON.parse(cachedData));
+        }
+      } catch (error) {
+        console.error("Loi doc Redis:", error.message);
+      }
+    }
+
+    // Neu khong co cache, doc PostgreSQL
+    console.log("CACHE MISS - Truy van PostgreSQL");
+
     const result = await pool.query(
       "SELECT * FROM tasks ORDER BY id ASC"
     );
+
+    // Luu Redis trong 60 giay
+    if (redisClient.isReady) {
+      try {
+        await redisClient.set(
+          cacheKey,
+          JSON.stringify(result.rows),
+          { EX: 60 }
+        );
+      } catch (error) {
+        console.error("Loi ghi Redis:", error.message);
+      }
+    }
+
+    res.set("X-Cache", "MISS");
     res.json(result.rows);
+
   } catch (error) {
     console.error("Loi truy van tasks:", error.message);
     res.status(500).json({
@@ -32,10 +71,13 @@ app.get("/api/tasks", async (req, res) => {
     });
   }
 });
-
 // Kiểm tra kết nối PostgreSQL khi khởi động
 async function startServer() {
   try {
+    await pool.query("SELECT 1");
+    console.log("Ket noi PostgreSQL thanh cong!");
+
+    await connectRedis();
     await pool.query("SELECT 1");
     console.log("Ket noi PostgreSQL thanh cong!");
 
@@ -54,10 +96,8 @@ async function startServer() {
 }
 
 startServer();
-
-
-const validStatuses = ["TODO", "IN_PROGRESS", "DONE"];
-
+// Cac trang thai hop le cua cong viec
+  const validStatuses = ["TODO", "IN_PROGRESS", "DONE"];
 // Thêm công việc
 app.post("/api/tasks", async (req, res) => {
   try {
@@ -76,7 +116,7 @@ app.post("/api/tasks", async (req, res) => {
        VALUES ($1, $2, $3, $4) RETURNING *`,
       [title.trim(), description || "", deadline || null, status]
     );
-
+    await clearTasksCache();
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error(error);
@@ -111,6 +151,7 @@ app.put("/api/tasks/:id", async (req, res) => {
       return res.status(404).json({ error: "Khong tim thay cong viec" });
     }
 
+    await clearTasksCache();
     res.json(result.rows[0]);
   } catch (error) {
     console.error(error);
@@ -136,6 +177,7 @@ app.delete("/api/tasks/:id", async (req, res) => {
       return res.status(404).json({ error: "Khong tim thay cong viec" });
     }
 
+    await clearTasksCache();
     res.json({ message: "Da xoa cong viec", id });
   } catch (error) {
     console.error(error);
