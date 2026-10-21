@@ -1,5 +1,19 @@
 
 services:
+  redis:
+    networks:
+      - task_net
+    image: redis:7-alpine
+    container_name: tasktracker-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   loki:
     image: grafana/loki:3.5.0
@@ -111,6 +125,7 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USER: ${APP_DB_USER}
       DB_PASSWORD: ${APP_DB_PASSWORD}
+      REDIS_URL: redis://redis:6379
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
@@ -158,6 +173,7 @@ services:
 
 
 volumes:
+   redis_data:
    postgres_data:
    pgadmin_data:
    prometheus_data:
